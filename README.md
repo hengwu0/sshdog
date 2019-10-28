@@ -21,12 +21,11 @@ Supported features:
 Example usage:
 
 ```
-% go build .
+% go build
 % ssh-keygen -t rsa -b 2048 -N '' -f config/ssh_host_rsa_key
 % echo 2222 > config/port
 % cp ~/.ssh/id_rsa.pub config/authorized_keys
-% rice append --exec sshdog
-% ./sshdog
+% ./sshd
 [DEBUG] Adding hostkey file: ssh_host_rsa_key
 [DEBUG] Adding authorized_keys.
 [DEBUG] Listening on :2222
