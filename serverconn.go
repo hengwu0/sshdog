@@ -74,7 +74,7 @@ func (conn *ServerConn) HandleConn() {
 	wg := &sync.WaitGroup{}
 
 	for newChan := range conn.chans {
-		dbg.Debug("Incoming channel request: %s", newChan.ChannelType())
+		dbg.Debug("Incoming channel request: %s: %x", newChan.ChannelType(), newChan)
 		switch newChan.ChannelType() {
 		case "session":
 			wg.Add(1)
@@ -149,12 +149,13 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 	defer func() {
 		b := ssh.Marshal(struct{ ExitStatus uint32 }{conn.exitStatus})
 		ch.SendRequest("exit-status", false, b)
-		dbg.Debug("Closing session channel.")
+		dbg.Debug("Closing session channel: %x.", ch)
 		ch.Close()
 	}()
 
-	var success bool
 	for req := range reqs {
+		success := false
+		dbg.Debug(req.Type)
 		switch req.Type {
 		case "pty-req":
 			ptyreq := &PTYRequest{}
@@ -173,9 +174,6 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 				dbg.Debug("Failed allocating pty: %v", err)
 				success = false
 			}
-			if req.WantReply {
-				req.Reply(success, []byte{})
-			}
 		case "env":
 			envreq := &EnvRequest{}
 			if err := ssh.Unmarshal(req.Payload, envreq); err != nil {
@@ -186,16 +184,10 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 				conn.environ = append(conn.environ, fmt.Sprintf("%s=%s", envreq.Name, envreq.Value))
 				success = true
 			}
-			if req.WantReply {
-				req.Reply(success, []byte{})
-			}
 		case "shell":
 			// TODO: get the user's shell
 			conn.ExecuteForChannel(defaultShell(), ch)
-			if req.WantReply {
-				req.Reply(true, []byte{})
-			}
-			return
+			success = true
 		case "exec":
 			execReq := &ExecRequest{}
 			if err := ssh.Unmarshal(req.Payload, execReq); err != nil {
@@ -204,9 +196,6 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 			} else {
 				if cmd, err := shlex.Split(execReq.Cmd); err == nil {
 					dbg.Debug("Command: %v", cmd)
-					if req.WantReply {
-						req.Reply(true, []byte{})
-					}
 					if cmd[0] == "scp" {
 						if err := conn.SCPHandler(cmd, ch); err != nil {
 							dbg.Debug("scp failure: %v", err)
@@ -215,20 +204,22 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 					} else {
 						conn.ExecuteForChannel(commandWithShell(execReq.Cmd), ch)
 					}
+					success = true
 				} else {
 					dbg.Debug("Error splitting cmd: %v", err)
-					if req.WantReply {
-						req.Reply(false, []byte{})
-					}
+					success = false
 				}
 			}
-			return
 		default:
 			dbg.Debug("Unknown session request: %s", req.Type)
-			if req.WantReply {
-				req.Reply(false, []byte{})
-			}
+			success = false
 		}
+		if req.WantReply {
+			dbg.Debug("Replyed: %v", success)
+		} else {
+			dbg.Debug("NO Reply")
+		}
+		req.Reply(success, nil)
 	}
 }
 
@@ -248,8 +239,9 @@ func (conn *ServerConn) ExecuteForChannel(shellCmd []string, ch ssh.Channel) {
 	} else {
 		conn.pty.AttachPty(proc)
 		conn.pty.AttachIO(ch, ch)
+		//todo: detach when closed
 	}
-	proc.Run()
+	proc.Start()
 	dbg.Debug("Finished execution.")
 }
 

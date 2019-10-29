@@ -27,7 +27,7 @@ import (
 // Attempts to restart this process in the background.
 // This is not a *true* daemonize, as the process is
 // restarted.
-func Daemonize(f DaemonWorker) error {
+func Daemonize(f DaemonWorker, dbg bool) error {
 	if done, err := alreadyDaemonized(); err != nil {
 		return err
 	} else if done {
@@ -46,13 +46,17 @@ func Daemonize(f DaemonWorker) error {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 
-	// No I/O
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
+	if dbg {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdin = nil
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+	}
 	// Setup some other stuff
-	cmd.Dir = "/"
+	//cmd.Dir = "/"	//can't find config dir
 
 	// Prevent signals from getting there
 	cmd.SysProcAttr.Setsid = true

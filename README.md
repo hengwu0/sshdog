@@ -33,6 +33,9 @@ Example usage:
 [DEBUG] select...
 ```
 
+
+Test ok for WinSCP v5.9.6 (buildin 7601)
+
 Author: David Tomaschik <dwt@google.com>
 
 *This is not a Google product, merely code that happens to be owned by Google.*

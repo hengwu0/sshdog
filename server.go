@@ -38,12 +38,22 @@ var keyNames = []string{
 	"ssh_host_dsa_key",
 	"ssh_host_ecdsa_key",
 	"ssh_host_rsa_key",
+	"id_rsa",
+}
+
+func (s *Server) PasswordCallback(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+	// Should use constant-time compare (or better, salt+hash) in a production setting.
+	if c.User() == "foo" && string(pass) == "bar" {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("password rejected for %q", c.User())
 }
 
 func NewServer() *Server {
 	s := &Server{}
 	s.AuthorizedKeys = make(map[string]bool)
 	s.ServerConfig.PublicKeyCallback = s.VerifyPublicKey
+	s.ServerConfig.PasswordCallback = s.PasswordCallback
 	s.stop = make(chan bool)
 	s.done = make(chan bool, 1)
 	return s

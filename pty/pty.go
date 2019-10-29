@@ -43,9 +43,15 @@ func OpenPty() (*Pty, error) {
 
 // Execute an exec.Cmd attached to a pty
 func (pty *Pty) AttachPty(cmd *exec.Cmd) {
-	cmd.Stdout = pty.tty
-	cmd.Stderr = pty.tty
-	cmd.Stdin = pty.tty
+	if cmd.Stdout == nil {
+		cmd.Stdout = pty.tty
+	}
+	if cmd.Stderr == nil {
+		cmd.Stderr = pty.tty
+	}
+	if cmd.Stdin == nil {
+		cmd.Stdin = pty.tty
+	}
 	attach_pty(pty.tty, cmd)
 }
 

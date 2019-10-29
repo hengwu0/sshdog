@@ -16,6 +16,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/GeertJohan/go.rice"
 	"github.com/matir/sshdog/daemon"
@@ -33,7 +34,7 @@ func (d Debugger) Debug(format string, args ...interface{}) {
 	}
 }
 
-var dbg Debugger = true
+var dbg Debugger = false
 
 // Lookup the port number
 func getPort(box *rice.Box) int16 {
@@ -52,7 +53,7 @@ func getPort(box *rice.Box) int16 {
 			return int16(port)
 		}
 	}
-	return 2222 // default
+	return 1022 // default
 }
 
 // Just check if a file exists
@@ -63,25 +64,43 @@ func fileExists(box *rice.Box, name string) bool {
 
 // Should we daemonize?
 func shouldDaemonize(box *rice.Box) bool {
-	return fileExists(box, "daemon")
+	return !fileExists(box, "nodaemon")
 }
 
-// Should we be silent?
-func beQuiet(box *rice.Box) bool {
-	return fileExists(box, "quiet")
+// in debug?
+func beDebug(box *rice.Box) bool {
+	return fileExists(box, "debug")
 }
 
 var mainBox *rice.Box
 
-func main() {
-	mainBox = mustFindBox()
+func usage() {
+	fmt.Fprintf(os.Stderr, "usage: %s\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "write files in `config` dir to make configuration:\n")
+	fmt.Fprintf(os.Stderr, "filename:port\n")
+	fmt.Fprintf(os.Stderr, "filename:nodaemon\n")
+	fmt.Fprintf(os.Stderr, "filename:authorized_keys\n")
+	fmt.Fprintf(os.Stderr, "    hostkey file names:\n")
+	fmt.Fprintf(os.Stderr, "        ssh_host_dsa_key\n")
+	fmt.Fprintf(os.Stderr, "        ssh_host_ecdsa_key\n")
+	fmt.Fprintf(os.Stderr, "        ssh_host_rsa_key\n")
+	fmt.Fprintf(os.Stderr, "        id_rsa\n")
+	fmt.Fprintf(os.Stderr, "    if no key file, RandomHostkey() will auto run,\n")
+	fmt.Fprintf(os.Stderr, "    the key fingerprint will be changed everytime.\n")
+	fmt.Fprintf(os.Stderr, "\n")
+	os.Exit(2)
+}
 
-	if beQuiet(mainBox) {
-		dbg = false
+func main() {
+	flag.Usage = usage
+	flag.Parse()
+	mainBox = mustFindBox()
+	if beDebug(mainBox) {
+		dbg = true
 	}
 
 	if shouldDaemonize(mainBox) {
-		if err := daemon.Daemonize(daemonStart); err != nil {
+		if err := daemon.Daemonize(daemonStart, dbg == true); err != nil {
 			dbg.Debug("Error daemonizing: %v", err)
 		}
 	} else {
@@ -103,7 +122,9 @@ func mustFindBox() *rice.Box {
 		},
 	}
 	if box, err := rice.FindBox("config"); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Must create an `config` dir! use -h show help.\n")
+		os.Exit(-1)
+		return nil
 	} else {
 		return box
 	}
