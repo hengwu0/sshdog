@@ -16,6 +16,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/google/shlex"
 	"github.com/matir/sshdog/pty"
@@ -33,9 +34,13 @@ import (
 type ServerConn struct {
 	*Server
 	*ssh.ServerConn
+	reqs  <-chan *ssh.Request
+	chans <-chan ssh.NewChannel
+}
+
+type Channel struct {
 	pty        *pty.Pty
-	reqs       <-chan *ssh.Request
-	chans      <-chan ssh.NewChannel
+	ch         ssh.Channel
 	environ    []string
 	exitStatus uint32
 }
@@ -50,7 +55,6 @@ func NewServerConn(conn net.Conn, s *Server) (*ServerConn, error) {
 		ServerConn: sConn,
 		reqs:       reqs,
 		chans:      chans,
-		environ:    os.Environ(),
 	}, nil
 }
 
@@ -138,20 +142,66 @@ func commandWithShell(command string) []string {
 	}
 }
 
+func (ch *Channel) Close() {
+	b := ssh.Marshal(struct{ ExitStatus uint32 }{ch.exitStatus})
+	ch.ch.SendRequest("exit-status", false, b)
+	dbg.Debug("Closing session channel: %x.", ch.ch)
+	ch.ch.Close()
+}
+
+// Execute a process for the channel.
+func (ch *Channel) ExecuteForChannel(shellCmd []string) {
+	dbg.Debug("Executing %v", shellCmd)
+	proc := exec.Command(shellCmd[0], shellCmd[1:]...)
+	proc.Env = ch.environ
+	if userInfo, err := user.Current(); err == nil {
+		proc.Dir = userInfo.HomeDir
+	}
+	close := func() {
+		ch.ch.Close()
+		_, err := proc.Process.Wait()
+		if err != nil {
+			dbg.Debug("failed to exit executing(%s)", err)
+		}
+		dbg.Debug("Executied.")
+	}
+	if ch.pty == nil {
+		stdin, _ := proc.StdinPipe()
+		go io.Copy(stdin, ch.ch)
+		proc.Stdout = ch.ch
+		proc.Stderr = ch.ch
+	} else {
+		ch.pty.AttachPty(proc)
+		ch.pty.AttachIO(ch.ch, ch.ch, close)
+	}
+	proc.Start()
+	//detach shell
+	if ch.pty != nil {
+		ch.pty.CloseTTY()
+	}
+	dbg.Debug("Executing...")
+}
+
+// parseDims extracts terminal dimensions (width x height) from the provided buffer.
+func parseDims(b []byte) (uint16, uint16) {
+	w := binary.BigEndian.Uint32(b)
+	h := binary.BigEndian.Uint32(b[4:])
+	return uint16(w), uint16(h)
+}
+
 func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.NewChannel) {
 	// TODO: refactor this, too long
 	defer wg.Done()
-	ch, reqs, err := newChan.Accept()
+	channel, reqs, err := newChan.Accept()
+	ch := &Channel{
+		ch:      channel,
+		environ: os.Environ(),
+	}
 	if err != nil {
 		dbg.Debug("Unable to accept newChan: %v", err)
 		return
 	}
-	defer func() {
-		b := ssh.Marshal(struct{ ExitStatus uint32 }{conn.exitStatus})
-		ch.SendRequest("exit-status", false, b)
-		dbg.Debug("Closing session channel: %x.", ch)
-		ch.Close()
-	}()
+	defer ch.Close()
 
 	for req := range reqs {
 		success := false
@@ -164,9 +214,9 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 				dbg.Debug("Error unmarshaling pty-req: %v", err)
 				success = false
 			}
-			conn.pty, err = pty.OpenPty()
-			if conn.pty != nil {
-				conn.pty.Resize(uint16(ptyreq.Height), uint16(ptyreq.Width), uint16(ptyreq.WidthPx), uint16(ptyreq.HeightPx))
+			ch.pty, err = pty.OpenPty()
+			if ch.pty != nil {
+				ch.pty.Resize(uint16(ptyreq.Height), uint16(ptyreq.Width), uint16(ptyreq.WidthPx), uint16(ptyreq.HeightPx))
 				os.Setenv("TERM", ptyreq.Term)
 				// TODO: set pty modes
 			}
@@ -181,12 +231,12 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 				success = false
 			} else {
 				dbg.Debug("env: %s=%s", envreq.Name, envreq.Value)
-				conn.environ = append(conn.environ, fmt.Sprintf("%s=%s", envreq.Name, envreq.Value))
+				ch.environ = append(ch.environ, fmt.Sprintf("%s=%s", envreq.Name, envreq.Value))
 				success = true
 			}
 		case "shell":
 			// TODO: get the user's shell
-			conn.ExecuteForChannel(defaultShell(), ch)
+			ch.ExecuteForChannel(defaultShell())
 			success = true
 		case "exec":
 			execReq := &ExecRequest{}
@@ -197,19 +247,20 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 				if cmd, err := shlex.Split(execReq.Cmd); err == nil {
 					dbg.Debug("Command: %v", cmd)
 					if cmd[0] == "scp" {
-						if err := conn.SCPHandler(cmd, ch); err != nil {
+						if err := conn.SCPHandler(cmd, ch.ch); err != nil {
 							dbg.Debug("scp failure: %v", err)
-							conn.exitStatus = 1
+							ch.exitStatus = 1
 						}
 					} else {
-						conn.ExecuteForChannel(commandWithShell(execReq.Cmd), ch)
+						ch.ExecuteForChannel(commandWithShell(execReq.Cmd))
 					}
-					success = true
-				} else {
-					dbg.Debug("Error splitting cmd: %v", err)
-					success = false
 				}
 			}
+			success = true
+		case "window-change":
+			w, h := parseDims(req.Payload)
+			ch.pty.Resize(h, w, 0, 0)
+			success = true
 		default:
 			dbg.Debug("Unknown session request: %s", req.Type)
 			success = false
@@ -221,28 +272,6 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 		}
 		req.Reply(success, nil)
 	}
-}
-
-// Execute a process for the channel.
-func (conn *ServerConn) ExecuteForChannel(shellCmd []string, ch ssh.Channel) {
-	dbg.Debug("Executing %v", shellCmd)
-	proc := exec.Command(shellCmd[0], shellCmd[1:]...)
-	proc.Env = conn.environ
-	if userInfo, err := user.Current(); err == nil {
-		proc.Dir = userInfo.HomeDir
-	}
-	if conn.pty == nil {
-		stdin, _ := proc.StdinPipe()
-		go io.Copy(stdin, ch)
-		proc.Stdout = ch
-		proc.Stderr = ch
-	} else {
-		conn.pty.AttachPty(proc)
-		conn.pty.AttachIO(ch, ch)
-		//todo: detach when closed
-	}
-	proc.Start()
-	dbg.Debug("Finished execution.")
 }
 
 // Message for port forwarding

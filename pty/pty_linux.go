@@ -48,35 +48,36 @@ func unlockpt(pty *os.File) error {
 	return nil
 }
 
-func open_pty() (pty, tty *os.File, err error) {
-	pty, err = posix_openpt(os.O_RDWR | unix.O_NOCTTY)
+func open_pty() (p, t *os.File, err error) {
+	p, err = posix_openpt(os.O_RDWR | unix.O_NOCTTY)
+	if err != nil {
+		return nil, nil, err
+	}
+	// In case of error after this point, make sure we close the ptmx fd.
+	defer func() {
+		if err != nil {
+			_ = p.Close() // Best effort.
+		}
+	}()
+
+	sname, err := ptsname(p)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	tty_name, err := ptsname(pty)
-	if err != nil {
-		pty.Close()
+	if err := unlockpt(p); err != nil {
 		return nil, nil, err
 	}
 
-	err = unlockpt(pty)
+	t, err = os.OpenFile(sname, os.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
-		pty.Close()
 		return nil, nil, err
 	}
-
-	tty, err = os.OpenFile(tty_name, os.O_RDWR|unix.O_NOCTTY, 0)
-	if err != nil {
-		pty.Close()
-		return nil, nil, err
-	}
-
-	return pty, tty, nil
+	return p, t, nil
 }
 
 func resize_pty(tty *os.File, size *ptyWindow) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, tty.Fd(), unix.TIOCGWINSZ, uintptr(unsafe.Pointer(size)))
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, tty.Fd(), unix.TIOCSWINSZ, uintptr(unsafe.Pointer(size)))
 	if errno != 0 {
 		return errno
 	}
