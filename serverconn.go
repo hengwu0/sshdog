@@ -28,6 +28,7 @@ import (
 	"os/user"
 	"runtime"
 	"sync"
+	"time"
 )
 
 // Handling for a single incoming connection
@@ -146,7 +147,10 @@ func (ch *Channel) Close() {
 	b := ssh.Marshal(struct{ ExitStatus uint32 }{ch.exitStatus})
 	ch.ch.SendRequest("exit-status", false, b)
 	dbg.Debug("Closing session channel: %x.", ch.ch)
-	ch.ch.Close()
+	if ch.ch != nil {
+		ch.ch.Close()
+		ch.ch = nil
+	}
 }
 
 // Execute a process for the channel.
@@ -189,6 +193,23 @@ func parseDims(b []byte) (uint16, uint16) {
 	return uint16(w), uint16(h)
 }
 
+func (ch *Channel) KeepAlive() {
+	for {
+		time.Sleep(60 * time.Second)
+		if ch.ch != nil {
+			_, err := ch.ch.SendRequest("keepalive", false, nil)
+			if err != nil {
+				if err != io.EOF {
+					dbg.Debug("keepalive session err: %s", err)
+				}
+				return
+			}
+		} else {
+			return
+		}
+	}
+}
+
 func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.NewChannel) {
 	// TODO: refactor this, too long
 	defer wg.Done()
@@ -202,6 +223,8 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 		return
 	}
 	defer ch.Close()
+
+	go ch.KeepAlive()
 
 	for req := range reqs {
 		success := false

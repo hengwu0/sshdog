@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 )
 
 // Manage the SSH Server
@@ -82,6 +83,13 @@ func (s *Server) acceptChannel() <-chan net.Conn {
 				return
 			}
 			dbg.Debug("Accepted connection from: %s", conn.RemoteAddr())
+			if conn, ok := conn.(*net.TCPConn); ok {
+				conn.SetKeepAlive(true)
+				conn.SetKeepAlivePeriod(time.Minute)
+				dbg.Debug("Socket KeepAlive ervey minutes period.")
+			} else {
+				dbg.Debug("Can't KeepAlive socket!")
+			}
 			c <- conn
 		}
 	}()

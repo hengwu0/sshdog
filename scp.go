@@ -58,6 +58,7 @@ var (
 
 // Manage SCP operations in a built-in fashion
 func (conn *ServerConn) SCPHandler(shellCmd []string, ch ssh.Channel) error {
+	dbg.Debug("scp shellCmd: %v", shellCmd)
 	shellCmd = shellCmd[1:] // pop scp off
 	var path string
 	var source bool
@@ -87,22 +88,34 @@ func (conn *ServerConn) SCPHandler(shellCmd []string, ch ssh.Channel) error {
 		err = conn.SCPSource(path, dirMode, recursive, ch)
 	} else {
 		err = conn.SCPSink(path, dirMode, ch)
+		if err == nil {
+			if err = scpSendAck(ch, 0, ""); err != nil {
+				return err
+			}
+		}
 	}
 	if err != nil {
 		scpSendError(ch, err)
 	}
-	ch.CloseWrite()
+	ch.Close()
 	return err
 }
 
 // Handle the 'source' side of an SCP connection
 func (conn *ServerConn) SCPSource(path string, dirMode bool, recursive bool, ch ssh.Channel) error {
+	srcFileInfo, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
 	src := bufio.NewReader(ch)
+	dbg.Debug("Preparing to readAck")
 	if err := readAck(src); err != nil {
 		return err
 	}
 	if recursive {
-		return SCPSendDir(path, nil, src, ch)
+		if srcFileInfo.IsDir() {
+			return SCPSendDir(path, nil, src, ch)
+		}
 	}
 	return SCPSendFile(path, src, ch)
 }
@@ -220,6 +233,7 @@ func readAck(src *bufio.Reader) error {
 
 func readAckDetails(src *bufio.Reader) (int, string, error) {
 	b, err := src.ReadByte()
+	dbg.Debug("readAckDetails: %v", b)
 	if err != nil {
 		return SCPFatal, "", err
 	}
@@ -237,14 +251,22 @@ func readAckDetails(src *bufio.Reader) (int, string, error) {
 }
 
 // Handle the 'sink' side of an SCP connection
-func (conn *ServerConn) SCPSink(path string, dirMode bool, ch ssh.Channel) error {
+func (conn *ServerConn) SCPSink(path string, dirMode bool, ch ssh.Channel) (err error) {
 	readbuf := bufio.NewReader(ch)
+	var cmd string
+	var parsed *SCPCommand
 	for {
-		if err := scpSendAck(ch, 0, ""); err != nil {
+		if err != nil {
+			scpSendAck(ch, 2, err.Error())
 			return err
+		} else {
+			if err = scpSendAck(ch, 0, ""); err != nil {
+				return err
+			}
 		}
+
 		// Get the text of the command
-		cmd, err := scpReadCommand(readbuf)
+		cmd, err = scpReadCommand(readbuf)
 		if err != nil {
 			if err == io.EOF {
 				// EOF here isn't bad
@@ -252,40 +274,37 @@ func (conn *ServerConn) SCPSink(path string, dirMode bool, ch ssh.Channel) error
 				scpSendAck(ch, 0, "")
 				return nil
 			}
-			scpSendAck(ch, 2, err.Error())
 			dbg.Debug("error in scp sink: %v", err)
-			return err
+			continue
 		}
+		dbg.Debug("cmd: %s", cmd)
 		if cmd == SCP_END_COMMANDS {
 			dbg.Debug("continue scp")
 			continue
 		}
 		// Parse it
-		parsed, err := parseSCPCommand(cmd)
+		parsed, err = parseSCPCommand(cmd)
 		if err != nil {
-			scpSendAck(ch, 2, err.Error())
 			dbg.Debug("error in scp sink: %v", err)
-			return err
+			continue
 		}
-		dbg.Debug("scp command: %v", parsed)
+		dbg.Debug("scp command: %#v", parsed)
 		switch parsed.CommandType {
 		case SCPCopy:
-			if err := scpSendAck(ch, 0, ""); err != nil {
+			if err = scpSendAck(ch, 0, ""); err != nil {
 				return err
 			}
 			fpath := filepath.Join(path, parsed.Name)
-			if err := receiveFile(fpath, parsed, readbuf); err != nil {
-				scpSendAck(ch, 2, err.Error())
-				return err
-			}
+			err = receiveFile(fpath, parsed, readbuf)
 		case SCPDir:
 			path = filepath.Join(path, parsed.Name)
-			if err := maybeMakeDir(path, parsed.Mode); err != nil {
-				scpSendAck(ch, 2, err.Error())
-				return err
+			if err = maybeMakeDir(path, parsed.Mode); err != nil {
+				continue
 			}
-		case SCPEndDir:
+			err = conn.SCPSink(path, dirMode, ch)
 			path = filepath.Clean(filepath.Join(path, ".."))
+		case SCPEndDir:
+			return nil
 		case SCPTime:
 		}
 	}
@@ -413,6 +432,7 @@ func scpSendAck(dst io.Writer, code int, msg string) error {
 		buf = append(buf, []byte(msg)...)
 		buf = append(buf, byte('\n'))
 	}
+	dbg.Debug("scpSendAck: %v", buf)
 	return scpWriter(dst, buf)
 }
 
