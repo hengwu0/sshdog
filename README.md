@@ -18,6 +18,11 @@ Supported features:
 * Port forwarding
 * SCP (but no SFTP support)
 
+如果希望在单板环境运行，最好在go目录执行：
+find -name "*.go" |xargs sed -i 's|/dev/random|/dev/urandom|'
+rm -rf ./pkg/linux_amd64 ./pkg/linux_amd64_race
+以免长时间不响应。
+
 Example usage:
 
 ```

@@ -47,10 +47,12 @@ type Channel struct {
 }
 
 func NewServerConn(conn net.Conn, s *Server) (*ServerConn, error) {
+	dbg.Debug("Start ssh auth...")
 	sConn, chans, reqs, err := ssh.NewServerConn(conn, &s.ServerConfig)
 	if err != nil {
 		return nil, err
 	}
+	dbg.Debug("Ssh auth returned.")
 	return &ServerConn{
 		Server:     s,
 		ServerConn: sConn,
@@ -79,7 +81,7 @@ func (conn *ServerConn) HandleConn() {
 	wg := &sync.WaitGroup{}
 
 	for newChan := range conn.chans {
-		dbg.Debug("Incoming channel request: %s: %x", newChan.ChannelType(), newChan)
+		dbg.Debug("Incoming channel request: %s: %p", newChan.ChannelType(), newChan)
 		switch newChan.ChannelType() {
 		case "session":
 			wg.Add(1)
@@ -143,14 +145,18 @@ func commandWithShell(command string) []string {
 	}
 }
 
+var lock sync.Mutex
+
 func (ch *Channel) Close() {
-	b := ssh.Marshal(struct{ ExitStatus uint32 }{ch.exitStatus})
-	ch.ch.SendRequest("exit-status", false, b)
-	dbg.Debug("Closing session channel: %x.", ch.ch)
+	lock.Lock()
 	if ch.ch != nil {
+		b := ssh.Marshal(struct{ ExitStatus uint32 }{ch.exitStatus})
+		ch.ch.SendRequest("exit-status", false, b)
+		dbg.Debug("Closing session channel: %p.", ch.ch)
 		ch.ch.Close()
 		ch.ch = nil
 	}
+	lock.Unlock()
 }
 
 // Execute a process for the channel.
@@ -162,7 +168,7 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 		proc.Dir = userInfo.HomeDir
 	}
 	close := func() {
-		ch.ch.Close()
+		ch.Close()
 		_, err := proc.Process.Wait()
 		if err != nil {
 			dbg.Debug("failed to exit executing(%s)", err)
