@@ -47,7 +47,7 @@ func (pty *Pty) CloseTTY() {
 }
 
 // Execute an exec.Cmd attached to a pty
-func (pty *Pty) AttachPty(cmd *exec.Cmd) {
+func (pty *Pty) AttachTty(cmd *exec.Cmd) {
 	if cmd.Stdout == nil {
 		cmd.Stdout = pty.tty
 	}
@@ -57,7 +57,7 @@ func (pty *Pty) AttachPty(cmd *exec.Cmd) {
 	if cmd.Stdin == nil {
 		cmd.Stdin = pty.tty
 	}
-	attach_pty(pty.tty, cmd)
+	attach_tty(pty.tty, cmd)
 }
 
 // Close the devices
@@ -69,7 +69,7 @@ func (pty *Pty) Close() {
 // Resize the pty
 func (pty *Pty) Resize(rows, cols, xpix, ypix uint16) error {
 	win := &ptyWindow{rows, cols, xpix, ypix}
-	return resize_pty(pty.tty, win)
+	return resize_pty(pty.pty, win)
 }
 
 // Attach to IO

@@ -76,15 +76,15 @@ func open_pty() (p, t *os.File, err error) {
 	return p, t, nil
 }
 
-func resize_pty(tty *os.File, size *ptyWindow) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, tty.Fd(), unix.TIOCSWINSZ, uintptr(unsafe.Pointer(size)))
+func resize_pty(pty *os.File, size *ptyWindow) error {
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, pty.Fd(), unix.TIOCSWINSZ, uintptr(unsafe.Pointer(size)))
 	if errno != 0 {
 		return errno
 	}
 	return nil
 }
 
-func attach_pty(tty *os.File, cmd *exec.Cmd) error {
+func attach_tty(tty *os.File, cmd *exec.Cmd) error {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}

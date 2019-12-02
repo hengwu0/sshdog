@@ -16,13 +16,17 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -42,19 +46,66 @@ var keyNames = []string{
 	"id_rsa",
 }
 
+type pwChain struct {
+	usr, passwd string
+}
+
+func readPasswd() (map[int]pwChain, error) {
+	fp, err := os.Open("./config/passwd")
+	if err != nil {
+		return nil, err
+	}
+	defer fp.Close()
+
+	reader := bufio.NewReader(fp)
+	buffer := bytes.NewBuffer(make([]byte, 0, 1024))
+	lines := make([]string, 0, 5)
+	for {
+		part, prefix, err := reader.ReadLine()
+		if err != nil {
+			break
+		}
+		buffer.Write(part)
+		if !prefix {
+			if str := strings.TrimSpace(buffer.String()); !strings.HasPrefix(str, "#") {
+				lines = append(lines, str)
+			}
+			buffer.Reset()
+		}
+	}
+
+	pw := make(map[int]pwChain)
+	for i, v := range lines {
+		tmp := strings.SplitN(v, ":", 2)
+		if len(tmp) == 2 {
+			pw[i] = pwChain{tmp[0], tmp[1]}
+		}
+	}
+
+	return pw, nil
+}
+
 func (s *Server) PasswordCallback(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-	// Should use constant-time compare (or better, salt+hash) in a production setting.
-	if c.User() == "foo" && string(pass) == "bar" {
-		return nil, nil
+	pws, err := readPasswd()
+	if err != nil {
+		return nil, err
+	}
+	pw := string(pass)
+	for _, v := range pws {
+		if v.usr == c.User() && v.passwd == pw {
+			return nil, nil
+		}
 	}
 	return nil, fmt.Errorf("password rejected for %q", c.User())
 }
 
-func NewServer() *Server {
+func NewServer(usepasswd bool) *Server {
 	s := &Server{}
 	s.AuthorizedKeys = make(map[string]bool)
 	s.ServerConfig.PublicKeyCallback = s.VerifyPublicKey
-	s.ServerConfig.PasswordCallback = s.PasswordCallback
+	if usepasswd {
+		s.ServerConfig.PasswordCallback = s.PasswordCallback
+	}
 	s.stop = make(chan bool)
 	s.done = make(chan bool, 1)
 	return s

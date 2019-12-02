@@ -181,7 +181,7 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 		proc.Stdout = ch.ch
 		proc.Stderr = ch.ch
 	} else {
-		ch.pty.AttachPty(proc)
+		ch.pty.AttachTty(proc)
 		ch.pty.AttachIO(ch.ch, ch.ch, close)
 	}
 	proc.Start()
@@ -193,10 +193,12 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 }
 
 // parseDims extracts terminal dimensions (width x height) from the provided buffer.
-func parseDims(b []byte) (uint16, uint16) {
+func parseDims(b []byte) (uint16, uint16, uint16, uint16) {
 	w := binary.BigEndian.Uint32(b)
 	h := binary.BigEndian.Uint32(b[4:])
-	return uint16(w), uint16(h)
+	width := binary.BigEndian.Uint32(b[8:])
+	height := binary.BigEndian.Uint32(b[12:])
+	return uint16(w), uint16(h), uint16(width), uint16(height)
 }
 
 func (ch *Channel) KeepAlive() {
@@ -287,8 +289,9 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 			}
 			success = true
 		case "window-change":
-			w, h := parseDims(req.Payload)
-			ch.pty.Resize(h, w, 0, 0)
+			w, h, width, height := parseDims(req.Payload)
+			dbg.Debug("window resize %dx%d", w, h)
+			ch.pty.Resize(h, w, width, height)
 			success = true
 		default:
 			dbg.Debug("Unknown session request: %s", req.Type)

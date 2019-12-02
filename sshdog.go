@@ -79,6 +79,9 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "write files in `config` dir to make configuration:\n")
 	fmt.Fprintf(os.Stderr, "filename:port\n")
 	fmt.Fprintf(os.Stderr, "filename:nodaemon\n")
+	fmt.Fprintf(os.Stderr, "filename:passwd\n")
+	fmt.Fprintf(os.Stderr, "    #format:\n")
+	fmt.Fprintf(os.Stderr, "    usr:passwd\n")
 	fmt.Fprintf(os.Stderr, "filename:authorized_keys\n")
 	fmt.Fprintf(os.Stderr, "    hostkey file names:\n")
 	fmt.Fprintf(os.Stderr, "        ssh_host_dsa_key\n")
@@ -91,6 +94,8 @@ func usage() {
 	os.Exit(2)
 }
 
+var usepasswd bool
+
 func main() {
 	flag.Usage = usage
 	flag.Parse()
@@ -99,6 +104,7 @@ func main() {
 		dbg = true
 	}
 
+	usepasswd = fileExists(mainBox, "passwd")
 	if shouldDaemonize(mainBox) {
 		if err := daemon.Daemonize(daemonStart, dbg == true); err != nil {
 			dbg.Debug("Error daemonizing: %v", err)
@@ -132,7 +138,7 @@ func mustFindBox() *rice.Box {
 
 // Actually run the implementation of the daemon
 func daemonStart() (waitFunc func(), stopFunc func()) {
-	server := NewServer()
+	server := NewServer(usepasswd)
 
 	hasHostKeys := false
 	for _, keyName := range keyNames {
