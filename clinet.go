@@ -28,6 +28,7 @@ import (
 	"os/user"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -169,9 +170,11 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 	}
 	close := func() {
 		ch.Close()
-		_, err := proc.Process.Wait()
-		if err != nil {
-			dbg.Debug("failed to exit executing(%s)", err)
+		if proc.Process != nil {
+			_, err := proc.Process.Wait()
+			if err != nil {
+				dbg.Debug("failed to exit executing(%s)", err)
+			}
 		}
 		dbg.Debug("Executied.")
 	}
@@ -184,6 +187,8 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 		ch.pty.AttachTty(proc)
 		ch.pty.AttachIO(ch.ch, ch.ch, close)
 	}
+	runtime.LockOSThread() //lock thread and try setuid root if can.
+	syscall.Syscall(syscall.SYS_SETUID, uintptr(0), 0, 0)
 	proc.Start()
 	//detach shell
 	if ch.pty != nil {
@@ -193,12 +198,10 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 }
 
 // parseDims extracts terminal dimensions (width x height) from the provided buffer.
-func parseDims(b []byte) (uint16, uint16, uint16, uint16) {
+func parseDims(b []byte) (uint16, uint16) {
 	w := binary.BigEndian.Uint32(b)
 	h := binary.BigEndian.Uint32(b[4:])
-	width := binary.BigEndian.Uint32(b[8:])
-	height := binary.BigEndian.Uint32(b[12:])
-	return uint16(w), uint16(h), uint16(width), uint16(height)
+	return uint16(w), uint16(h)
 }
 
 func (ch *Channel) KeepAlive() {
@@ -231,7 +234,6 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 		return
 	}
 	defer ch.Close()
-
 	go ch.KeepAlive()
 
 	for req := range reqs {
@@ -289,9 +291,9 @@ func (conn *ServerConn) HandleSessionChannel(wg *sync.WaitGroup, newChan ssh.New
 			}
 			success = true
 		case "window-change":
-			w, h, width, height := parseDims(req.Payload)
+			w, h := parseDims(req.Payload)
 			dbg.Debug("window resize %dx%d", w, h)
-			ch.pty.Resize(h, w, width, height)
+			ch.pty.Resize(h, w, 0, 0)
 			success = true
 		default:
 			dbg.Debug("Unknown session request: %s", req.Type)
