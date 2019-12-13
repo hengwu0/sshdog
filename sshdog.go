@@ -162,7 +162,6 @@ func daemonStart() (waitFunc func(), stopFunc func()) {
 		server.AddAuthorizedKeys(authData)
 	} else {
 		dbg.Debug("No authorized keys found: %v", err)
-		return
 	}
 	server.ListenAndServe(getPort(mainBox))
 	return server.Wait, server.Stop
