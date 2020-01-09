@@ -29,7 +29,7 @@ func open_pty() (pty, tty *os.File, err error) {
 	return nil, nil, Unsupported
 }
 
-func attach_pty(_ *os.File, _ *exec.Cmd) error {
+func attach_tty(_ *os.File, _ *exec.Cmd) error {
 	return Unsupported
 }
 

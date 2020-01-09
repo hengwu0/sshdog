@@ -51,7 +51,7 @@ type pwChain struct {
 }
 
 func readPasswd() (map[int]pwChain, error) {
-	fp, err := os.Open("./config/passwd")
+	fp, err := os.Open(conf.getPath("passwd"))
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +99,11 @@ func (s *Server) PasswordCallback(c ssh.ConnMetadata, pass []byte) (*ssh.Permiss
 	return nil, fmt.Errorf("password rejected for %q", c.User())
 }
 
-func NewServer(usepasswd bool) *Server {
+func NewServer() *Server {
 	s := &Server{}
 	s.AuthorizedKeys = make(map[string]bool)
 	s.ServerConfig.PublicKeyCallback = s.VerifyPublicKey
-	if usepasswd {
+	if conf.usrpasswd {
 		s.ServerConfig.PasswordCallback = s.PasswordCallback
 	}
 	s.stop = make(chan bool)

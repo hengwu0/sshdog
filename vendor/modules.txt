@@ -1,14 +1,6 @@
-# github.com/GeertJohan/go.rice v1.0.0
-github.com/GeertJohan/go.rice
-github.com/GeertJohan/go.rice/embedded
-# github.com/daaku/go.zipexe v1.0.0
-github.com/daaku/go.zipexe
-# github.com/google/shlex v0.0.0-20181106134648-c34317bd91bf
 github.com/google/shlex
-# github.com/matir/sshdog v0.0.0-20180621175449-97f39b128070
-github.com/matir/sshdog/daemon
-github.com/matir/sshdog/pty
-# golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550
+github.com/hengwu0/sshdog/daemon
+github.com/hengwu0/sshdog/pty
 golang.org/x/crypto/ssh
 golang.org/x/crypto/curve25519
 golang.org/x/crypto/ed25519
@@ -16,7 +8,6 @@ golang.org/x/crypto/internal/chacha20
 golang.org/x/crypto/poly1305
 golang.org/x/crypto/ed25519/internal/edwards25519
 golang.org/x/crypto/internal/subtle
-# golang.org/x/sys v0.0.0-20190412213103-97732733099d
 golang.org/x/sys/unix
 golang.org/x/sys/windows/svc
 golang.org/x/sys/windows/svc/mgr

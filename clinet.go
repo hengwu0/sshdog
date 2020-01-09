@@ -19,7 +19,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/shlex"
-	"github.com/matir/sshdog/pty"
+	"github.com/hengwu0/sshdog/proc"
+	"github.com/hengwu0/sshdog/pty"
 	"golang.org/x/crypto/ssh"
 	"io"
 	"net"
@@ -28,7 +29,6 @@ import (
 	"os/user"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -163,15 +163,15 @@ func (ch *Channel) Close() {
 // Execute a process for the channel.
 func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 	dbg.Debug("Executing %v", shellCmd)
-	proc := exec.Command(shellCmd[0], shellCmd[1:]...)
-	proc.Env = ch.environ
+	exe := exec.Command(shellCmd[0], shellCmd[1:]...)
+	exe.Env = ch.environ
 	if userInfo, err := user.Current(); err == nil {
-		proc.Dir = userInfo.HomeDir
+		exe.Dir = userInfo.HomeDir
 	}
 	close := func() {
 		ch.Close()
-		if proc.Process != nil {
-			_, err := proc.Process.Wait()
+		if exe.Process != nil {
+			_, err := exe.Process.Wait()
 			if err != nil {
 				dbg.Debug("failed to exit executing(%s)", err)
 			}
@@ -179,17 +179,17 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 		dbg.Debug("Executied.")
 	}
 	if ch.pty == nil {
-		stdin, _ := proc.StdinPipe()
+		stdin, _ := exe.StdinPipe()
 		go io.Copy(stdin, ch.ch)
-		proc.Stdout = ch.ch
-		proc.Stderr = ch.ch
+		exe.Stdout = ch.ch
+		exe.Stderr = ch.ch
 	} else {
-		ch.pty.AttachTty(proc)
+		ch.pty.AttachTty(exe)
 		ch.pty.AttachIO(ch.ch, ch.ch, close)
 	}
-	runtime.LockOSThread() //lock thread and try setuid root if can.
-	syscall.Syscall(syscall.SYS_SETUID, uintptr(0), 0, 0)
-	proc.Start()
+
+	proc.Setuid(conf.setuid)
+	exe.Start()
 	//detach shell
 	if ch.pty != nil {
 		ch.pty.CloseTTY()

@@ -27,7 +27,7 @@ var ErrUnsupported = errors.New("Not yet supported.")
 
 var WindowsServiceName = "sshdog"
 
-func Daemonize(f DaemonWorker) error {
+func Daemonize(f DaemonWorker, dbg bool) error {
 	if interactive, err := svc.IsAnInteractiveSession(); err != nil {
 		return err
 	} else if interactive {

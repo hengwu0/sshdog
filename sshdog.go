@@ -18,70 +18,21 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/GeertJohan/go.rice"
-	"github.com/matir/sshdog/daemon"
+	"github.com/hengwu0/sshdog/daemon"
+	"github.com/hengwu0/sshdog/proc"
 	"os"
-	"strconv"
-	"strings"
 )
 
-type Debugger bool
-
-func (d Debugger) Debug(format string, args ...interface{}) {
-	if d {
-		msg := fmt.Sprintf(format, args...)
-		fmt.Fprintf(os.Stderr, "[DEBUG] %s\n", msg)
-	}
-}
-
-var dbg Debugger = false
-
-// Lookup the port number
-func getPort(box *rice.Box) int16 {
-	if len(os.Args) > 1 {
-		if port, err := strconv.Atoi(os.Args[1]); err != nil {
-			dbg.Debug("Error parsing %s as port: %v", os.Args[1], err)
-		} else {
-			return int16(port)
-		}
-	}
-	if portData, err := box.String("port"); err == nil {
-		portData = strings.TrimSpace(portData)
-		if port, err := strconv.Atoi(portData); err != nil {
-			dbg.Debug("Error parsing %s as port: %v", portData, err)
-		} else {
-			return int16(port)
-		}
-	}
-	return 1022 // default
-}
-
-// Just check if a file exists
-func fileExists(box *rice.Box, name string) bool {
-	_, err := box.Bytes(name)
-	return err == nil
-}
-
-// Should we daemonize?
-func shouldDaemonize(box *rice.Box) bool {
-	return !fileExists(box, "nodaemon")
-}
-
-// in debug?
-func beDebug(box *rice.Box) bool {
-	return fileExists(box, "debug")
-}
-
-var mainBox *rice.Box
-
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "usage1: %s\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "write files in `config` dir to make configuration:\n")
 	fmt.Fprintf(os.Stderr, "filename:port\n")
 	fmt.Fprintf(os.Stderr, "filename:nodaemon\n")
+	fmt.Fprintf(os.Stderr, "filename:setuid\n")
+	fmt.Fprintf(os.Stderr, "    #term login root with SUID of sshd.\n")
 	fmt.Fprintf(os.Stderr, "filename:passwd\n")
 	fmt.Fprintf(os.Stderr, "    #format:\n")
-	fmt.Fprintf(os.Stderr, "    usr:passwd\n")
+	fmt.Fprintf(os.Stderr, "     usr:passwd\n")
 	fmt.Fprintf(os.Stderr, "filename:authorized_keys\n")
 	fmt.Fprintf(os.Stderr, "    hostkey file names:\n")
 	fmt.Fprintf(os.Stderr, "        ssh_host_dsa_key\n")
@@ -90,22 +41,20 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "        id_rsa\n")
 	fmt.Fprintf(os.Stderr, "    if no key file, RandomHostkey() will auto run,\n")
 	fmt.Fprintf(os.Stderr, "    the key fingerprint will be changed everytime.\n")
+	fmt.Fprintf(os.Stderr, "usage2: %s <-s/e/stop/exit>\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "send kill signal to running sshd.\n\n")
+	fmt.Fprintf(os.Stderr, "Any question, please contact 'hengwu0 <wu.heng@zte.com.cn>'.\n")
 	fmt.Fprintf(os.Stderr, "\n")
 	os.Exit(2)
 }
 
-var usepasswd bool
+var conf *config
 
 func main() {
-	flag.Usage = usage
-	flag.Parse()
-	mainBox = mustFindBox()
-	if beDebug(mainBox) {
-		dbg = true
-	}
+	flagParse()
+	conf = mustFindConfig("./config")
 
-	usepasswd = fileExists(mainBox, "passwd")
-	if shouldDaemonize(mainBox) {
+	if conf.shouldDaemon {
 		if err := daemon.Daemonize(daemonStart, dbg == true); err != nil {
 			dbg.Debug("Error daemonizing: %v", err)
 		}
@@ -117,32 +66,35 @@ func main() {
 	}
 }
 
-func mustFindBox() *rice.Box {
-	// Overloading name 'rice' due to bug in rice to be fixed in 2.0:
-	// https://github.com/GeertJohan/go.rice/issues/58
-	rice := &rice.Config{
-		LocateOrder: []rice.LocateMethod{
-			rice.LocateAppended,
-			rice.LocateEmbedded,
-			rice.LocateWorkingDirectory,
-		},
+func flagParse() {
+	var exit bool
+	flag.BoolVar(&exit, "s", false, "exit sshd.")
+	flag.BoolVar(&exit, "stop", false, "exit sshd.")
+	flag.BoolVar(&exit, "e", false, "exit sshd.")
+	flag.BoolVar(&exit, "exit", false, "exit sshd.")
+	flag.Usage = usage
+	flag.Parse()
+	if f := flag.Args(); len(f) != 0 {
+		fmt.Fprintf(os.Stderr, "Can't parse %v\n", f)
+		os.Exit(1)
 	}
-	if box, err := rice.FindBox("config"); err != nil {
-		fmt.Fprintf(os.Stderr, "Must create an `config` dir! use -h show help.\n")
-		os.Exit(-1)
-		return nil
-	} else {
-		return box
+
+	if exit {
+		dbg = true
+		proc.SendExitSignal()
+		os.Exit(0)
 	}
 }
 
 // Actually run the implementation of the daemon
 func daemonStart() (waitFunc func(), stopFunc func()) {
-	server := NewServer(usepasswd)
+	proc.SetSignalExit()
+	conf.changePWD()
+	server := NewServer()
 
 	hasHostKeys := false
 	for _, keyName := range keyNames {
-		if keyData, err := mainBox.Bytes(keyName); err == nil {
+		if keyData, err := conf.getBytes(keyName); err == nil {
 			dbg.Debug("Adding hostkey file: %s", keyName)
 			if err = server.AddHostkey(keyData); err != nil {
 				dbg.Debug("Error adding public key: %v", err)
@@ -157,12 +109,12 @@ func daemonStart() (waitFunc func(), stopFunc func()) {
 		}
 	}
 
-	if authData, err := mainBox.Bytes("authorized_keys"); err == nil {
+	if authData, err := conf.getBytes("authorized_keys"); err == nil {
 		dbg.Debug("Adding authorized_keys.")
 		server.AddAuthorizedKeys(authData)
 	} else {
 		dbg.Debug("No authorized keys found: %v", err)
 	}
-	server.ListenAndServe(getPort(mainBox))
+	server.ListenAndServe(conf.getPort())
 	return server.Wait, server.Stop
 }
