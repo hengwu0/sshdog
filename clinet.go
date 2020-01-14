@@ -168,16 +168,6 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 	if userInfo, err := user.Current(); err == nil {
 		exe.Dir = userInfo.HomeDir
 	}
-	close := func() {
-		ch.Close()
-		if exe.Process != nil {
-			_, err := exe.Process.Wait()
-			if err != nil {
-				dbg.Debug("failed to exit executing(%s)", err)
-			}
-		}
-		dbg.Debug("Executied.")
-	}
 	if ch.pty == nil {
 		stdin, _ := exe.StdinPipe()
 		go io.Copy(stdin, ch.ch)
@@ -185,16 +175,26 @@ func (ch *Channel) ExecuteForChannel(shellCmd []string) {
 		exe.Stderr = ch.ch
 	} else {
 		ch.pty.AttachTty(exe)
-		ch.pty.AttachIO(ch.ch, ch.ch, close)
+		ch.pty.AttachIO(ch.ch, ch.ch)
 	}
 
-	proc.Setuid(conf.setuid)
+	proc.Setuid(conf.fileExists("setuid"))
 	exe.Start()
 	//detach shell
 	if ch.pty != nil {
 		ch.pty.CloseTTY()
 	}
 	dbg.Debug("Executing...")
+	go func(exe *exec.Cmd, ch *Channel) {
+		if exe.Process != nil {
+			_, err := exe.Process.Wait()
+			if err != nil {
+				dbg.Debug("failed to exit executing(%s)", err)
+			}
+		}
+		ch.Close()
+		dbg.Debug("Executied.")
+	}(exe, ch)
 }
 
 // parseDims extracts terminal dimensions (width x height) from the provided buffer.

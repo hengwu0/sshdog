@@ -52,7 +52,7 @@ var conf *config
 
 func main() {
 	flagParse()
-	conf = mustFindConfig("./config")
+	conf = mustFindConfig("config")
 
 	if conf.shouldDaemon {
 		if err := daemon.Daemonize(daemonStart, dbg == true); err != nil {
@@ -88,7 +88,6 @@ func flagParse() {
 
 // Actually run the implementation of the daemon
 func daemonStart() (waitFunc func(), stopFunc func()) {
-	proc.SetSignalExit()
 	conf.changePWD()
 	server := NewServer()
 
@@ -116,5 +115,6 @@ func daemonStart() (waitFunc func(), stopFunc func()) {
 		dbg.Debug("No authorized keys found: %v", err)
 	}
 	server.ListenAndServe(conf.getPort())
+	proc.SetSignalExit(server.Stop)
 	return server.Wait, server.Stop
 }

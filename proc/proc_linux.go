@@ -18,16 +18,16 @@ func Setuid(b bool) {
 	}
 }
 
-func SetSignalExit() {
+func SetSignalExit(exitFunc func()) {
 	var s = make(chan os.Signal)
 	signal.Notify(s, syscall.SIGCONT)
-	go signalProcess(s)
+	go signalProcess(s, exitFunc)
 }
 
-func signalProcess(s <-chan os.Signal) {
+func signalProcess(s <-chan os.Signal, exitFunc func()) {
 	for {
 		_ = <-s
-		os.Exit(0)
+		exitFunc()
 	}
 }
 

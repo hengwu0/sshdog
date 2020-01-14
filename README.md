@@ -14,7 +14,7 @@ Supported features:
 
 * Windows & Linux
 * Configure port, host key, authorized keys
-* Pubkey authentication (no passwords)
+* Pubkey, passwords authentication
 * Port forwarding
 * SCP (but no SFTP support)
 

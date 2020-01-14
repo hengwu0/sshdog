@@ -25,7 +25,6 @@ func (d Debugger) Debug(format string, args ...interface{}) {
 type config struct {
 	dir          string
 	usrpasswd    bool
-	setuid       bool
 	shouldDaemon bool
 }
 
@@ -109,7 +108,25 @@ func (c *config) changePWD() {
 	dbg.Debug("Can't find HomeDir.")
 }
 
+func (c *config) getPasswdUpdateMsg() {
+	if c.usrpasswd != c.fileExists("passwd") {
+		dbg.Debug("You need to restart %s to let passwd-file take effect!!!", os.Args[0])
+	}
+}
+
 func mustFindConfig(name string) *config {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Can't find exe path, use cwd instead.\n")
+		name = filepath.Join("./", name)
+	} else {
+		if exe2, err := filepath.EvalSymlinks(exe); err != nil {
+			fmt.Fprintf(os.Stderr, "Can't read Symlinks(%s), use cwd instead.\n", exe)
+			name = filepath.Join("./", name)
+		} else {
+			name = filepath.Join(filepath.Dir(exe2), name)
+		}
+	}
 	c := &config{dir: name}
 	if !c.findDir(".") {
 		fmt.Fprintf(os.Stderr, "Must create an `config` dir! use -h show help.\n")
@@ -121,6 +138,5 @@ func mustFindConfig(name string) *config {
 	}
 	c.usrpasswd = c.fileExists("passwd")
 	c.shouldDaemon = !c.fileExists("nodaemon")
-	c.setuid = c.fileExists("setuid")
 	return c
 }

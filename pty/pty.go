@@ -19,7 +19,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"sync"
 )
 
 type Pty struct {
@@ -73,16 +72,8 @@ func (pty *Pty) Resize(rows, cols, xpix, ypix uint16) error {
 }
 
 // Attach to IO
-func (pty *Pty) AttachIO(r io.Reader, w io.Writer, close func()) {
+func (pty *Pty) AttachIO(w io.Writer, r io.Reader) {
 	//teardown session
-	var once sync.Once
-
-	go func() {
-		io.Copy(pty.pty, r)
-		once.Do(close)
-	}()
-	go func() {
-		io.Copy(w, pty.pty)
-		once.Do(close)
-	}()
+	go io.Copy(pty.pty, r)
+	go io.Copy(w, pty.pty)
 }

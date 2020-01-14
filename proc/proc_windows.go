@@ -1,11 +1,16 @@
 package proc
 
+import (
+	"fmt"
+	"os"
+)
+
 func Setuid(b bool) {
 }
 
-func SetSignalExit() {
+func SetSignalExit(exitFunc func()) {
 }
 
-func SendExitSignal() string {
-	return "Not yet supported."
+func SendExitSignal() {
+	fmt.Fprintf(os.Stderr, "Not yet supported.\n")
 }
