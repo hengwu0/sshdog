@@ -56,7 +56,7 @@ func main() {
 
 	if conf.shouldDaemon {
 		if err := daemon.Daemonize(daemonStart, dbg == true); err != nil {
-			dbg.Debug("Error daemonizing: %v", err)
+			fmt.Fprintf(os.Stderr, "Error daemonizing: %v", err)
 		}
 	} else {
 		waitFunc, _ := daemonStart()
@@ -103,7 +103,7 @@ func daemonStart() (waitFunc func(), stopFunc func()) {
 	}
 	if !hasHostKeys {
 		if err := server.RandomHostkey(); err != nil {
-			dbg.Debug("Error adding random hostkey: %v", err)
+			fmt.Fprintf(os.Stderr, "Error adding random hostkey: %v", err)
 			return
 		}
 	}

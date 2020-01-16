@@ -65,7 +65,7 @@ func NewServer() *Server {
 func (s *Server) listen(port int16) error {
 	sPort := ":" + strconv.Itoa(int(port))
 	if sock, err := net.Listen("tcp", sPort); err != nil {
-		dbg.Debug("Unable to listen: %v", err)
+		fmt.Fprintf(os.Stderr, "Unable to listen: %v", err)
 		return err
 	} else {
 		dbg.Debug("Listening on %s", sPort)
@@ -170,7 +170,7 @@ func (s *Server) AddAuthorizedKeys(keyData []byte) {
 		newKey, _, _, left, err := ssh.ParseAuthorizedKey(keyData)
 		keyData = left
 		if err != nil {
-			dbg.Debug("Error parsing key: %v", err)
+			fmt.Fprintf(os.Stderr, "Error parsing key: %v", err)
 			break
 		}
 		s.AuthorizedKeys[string(newKey.Marshal())] = true

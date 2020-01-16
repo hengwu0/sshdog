@@ -30,17 +30,10 @@ type config struct {
 
 // Lookup the port number
 func (c *config) getPort() int16 {
-	if len(os.Args) > 1 {
-		if port, err := strconv.Atoi(os.Args[1]); err != nil {
-			dbg.Debug("Error parsing %s as port: %v", os.Args[1], err)
-		} else {
-			return int16(port)
-		}
-	}
 	if portData, err := c.getBytes("port"); err == nil {
 		portData := strings.TrimSpace(string(portData))
 		if port, err := strconv.Atoi(portData); err != nil {
-			dbg.Debug("Error parsing %s as port: %v", portData, err)
+			fmt.Fprintf(os.Stderr, "Error parsing %s as port: %v, use 1022 for default.", portData, err)
 		} else {
 			return int16(port)
 		}
@@ -105,7 +98,11 @@ func (c *config) changePWD() {
 		dbg.Debug("Can't chdir to %s", user.HomeDir)
 		return
 	}
-	dbg.Debug("Can't find HomeDir.")
+	pwd, _ := os.Getwd()
+	if pwd == "" {
+		pwd = "Unknown"
+	}
+	dbg.Debug("changePWD failed. Now PWD: %s", pwd)
 }
 
 func (c *config) getPasswdUpdateMsg() {
