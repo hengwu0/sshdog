@@ -5,7 +5,7 @@ else
 endif
 
 all:
-	go build -o $(a.out) -mod=vendor
+	go build -o $(a.out) -ldflags "-s -w" -mod=vendor
 
 fmt:
 	for file in `find -name "*.go" `; do gofmt -l -w $$file; done
